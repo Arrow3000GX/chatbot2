@@ -36,7 +36,6 @@
     .header {
       padding: 14px;
       text-align: center;
-      background: #020617;
       border-bottom: 1px solid #1e293b;
       font-weight: 600;
     }
@@ -57,6 +56,7 @@
       font-size: 14px;
       line-height: 1.4;
       animation: fadeIn 0.2s ease;
+      white-space: pre-wrap;
     }
 
     .user {
@@ -69,7 +69,6 @@
     .bot {
       align-self: flex-start;
       background: #1e293b;
-      color: #e5e7eb;
       border-bottom-left-radius: 4px;
     }
 
@@ -78,7 +77,6 @@
       padding: 12px;
       gap: 8px;
       border-top: 1px solid #1e293b;
-      background: #020617;
       align-items: center;
     }
 
@@ -134,7 +132,7 @@
       <input
         id="input"
         type="text"
-        placeholder="Type your message..."
+        placeholder="Type your message…"
         autocomplete="off"
       />
 
@@ -150,6 +148,11 @@
     const messages = document.getElementById("messages");
     const sendBtn = document.getElementById("sendBtn");
     const fileInput = document.getElementById("fileInput");
+
+    // --------------------
+    // Per-tab session ID
+    // --------------------
+    const SESSION_ID = crypto.randomUUID();
 
     function addMessage(text, type) {
       const div = document.createElement("div");
@@ -179,11 +182,15 @@
       try {
         const res = await fetch("/chat", {
           method: "POST",
+          headers: {
+            "x-session-id": SESSION_ID
+          },
           body: formData
         });
 
         const data = await res.json();
         addMessage(data.reply || "No response", "bot");
+
       } catch {
         addMessage("Error connecting to server", "bot");
       }
