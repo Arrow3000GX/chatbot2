@@ -4,6 +4,7 @@ import dotenv from "dotenv";
 import express from "express";
 import multer from "multer";
 import fs from "fs";
+import mammoth from "mammoth";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 // --------------------
@@ -28,6 +29,7 @@ if (!fs.existsSync(uploadDir)) {
 const app = express();
 const port = process.env.PORT || 3000;
 
+// Serve frontend
 app.use(express.static(path.join(__dirname, "public")));
 
 // --------------------
@@ -35,7 +37,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // --------------------
 const upload = multer({
   dest: uploadDir,
-  limits: { fileSize: 10 * 1024 * 1024 }
+  limits: { fileSize: 10 * 1024 * 1024 } // 10MB
 });
 
 // --------------------
@@ -47,23 +49,45 @@ const model = genAI.getGenerativeModel({
 });
 
 // --------------------
-// Chat endpoint
+// Chat endpoint (TEXT + FILE)
 // --------------------
 app.post("/chat", upload.single("file"), async (req, res) => {
   try {
     const message = req.body?.message || "";
     const file = req.file;
 
-    if (!message && !file) {
+    let extractedText = "";
+
+    // --------------------
+    // DOCX extraction
+    // --------------------
+    if (
+      file &&
+      file.mimetype ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    ) {
+      const result = await mammoth.extractRawText({ path: file.path });
+      extractedText = result.value.trim();
+    }
+
+    if (!message && !extractedText) {
       return res.json({ reply: "No input received" });
     }
 
-    let prompt = message || "User uploaded a file.";
+    // --------------------
+    // Build Gemini prompt
+    // --------------------
+    const prompt = `
+You are an AI assistant that can read uploaded documents.
 
-    if (file) {
-      prompt += `\n\nUploaded file name: ${file.originalname}`;
-      prompt += `\nFile type: ${file.mimetype}`;
-    }
+DOCUMENT CONTENT:
+${extractedText || "(No document uploaded)"}
+
+USER MESSAGE:
+${message || "(No message provided)"}
+
+Answer clearly and accurately using the document if relevant.
+`;
 
     const result = await model.generateContent(prompt);
 
@@ -73,6 +97,13 @@ app.post("/chat", upload.single("file"), async (req, res) => {
       "No response from model";
 
     res.json({ reply });
+
+    // --------------------
+    // Cleanup temp file (Render-safe)
+    // --------------------
+    if (file) {
+      fs.unlink(file.path, () => {});
+    }
 
   } catch (err) {
     console.error("AI ERROR:", err);
