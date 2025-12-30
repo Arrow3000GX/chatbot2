@@ -1,56 +1,88 @@
 import path from "path";
 import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+import express from "express";
+import multer from "multer";
+import fs from "fs";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
+// --------------------
+// Path + ENV
+// --------------------
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 dotenv.config({ path: path.join(__dirname, ".env") });
 
-console.log("KEY LOADED:", process.env.API_KEY);
+// --------------------
+// Ensure uploads dir exists (Render-safe)
+// --------------------
+const uploadDir = path.join(__dirname, "uploads");
+if (!fs.existsSync(uploadDir)) {
+  fs.mkdirSync(uploadDir);
+}
 
-import express from "express";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
+// --------------------
+// App
+// --------------------
 const app = express();
 const port = process.env.PORT || 3000;
 
-app.use(express.json());
-app.use(express.static("public"));
+app.use(express.static(path.join(__dirname, "public")));
 
+// --------------------
+// Multer (temp uploads)
+// --------------------
+const upload = multer({
+  dest: uploadDir,
+  limits: { fileSize: 10 * 1024 * 1024 }
+});
+
+// --------------------
+// Gemini
+// --------------------
 const genAI = new GoogleGenerativeAI(process.env.API_KEY);
+const model = genAI.getGenerativeModel({
+  model: process.env.MODEL || "gemini-1.5-flash",
+});
 
-app.post("/chat", async (req, res) => {
+// --------------------
+// Chat endpoint
+// --------------------
+app.post("/chat", upload.single("file"), async (req, res) => {
   try {
-    const message = req.body?.message;
+    const message = req.body?.message || "";
+    const file = req.file;
 
-    if (!message) {
+    if (!message && !file) {
       return res.json({ reply: "No input received" });
     }
 
-    const genAI = new GoogleGenerativeAI(process.env.API_KEY);
-    const model = genAI.getGenerativeModel({
-      model: process.env.MODEL || "gemini-1.5-flash",
-    });
+    let prompt = message || "User uploaded a file.";
 
-    const result = await model.generateContent(message);
+    if (file) {
+      prompt += `\n\nUploaded file name: ${file.originalname}`;
+      prompt += `\nFile type: ${file.mimetype}`;
+    }
 
-    const response = result.response;
+    const result = await model.generateContent(prompt);
+
     const reply =
-      response?.candidates?.[0]?.content?.parts?.[0]?.text ||
-      response?.text?.() ||
+      result.response?.candidates?.[0]?.content?.parts?.[0]?.text ||
+      result.response?.text?.() ||
       "No response from model";
 
     res.json({ reply });
-  }
-   catch (err) {
-  console.error("AI ERROR FULL:", err);
-  res.json({ reply: "AI error occurred: " + err.message });
-  }
 
+  } catch (err) {
+    console.error("AI ERROR:", err);
+    res.json({ reply: "AI error occurred: " + err.message });
+  }
 });
 
-
+// --------------------
+// Start
+// --------------------
 app.listen(port, () => {
-  console.log(`Server running at http://localhost:${port}`);
+  console.log(`Server running on port ${port}`);
 });
