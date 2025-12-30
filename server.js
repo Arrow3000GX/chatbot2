@@ -49,17 +49,47 @@ const model = genAI.getGenerativeModel({
 });
 
 // --------------------
-// Chat endpoint (TEXT + FILE)
+// In-memory session store
+// --------------------
+const sessions = new Map();
+/*
+sessions structure:
+{
+  messages: [{ role: "user" | "assistant", content: string }],
+  document: string
+}
+*/
+
+// --------------------
+// Session helper
+// --------------------
+function getSessionId(req) {
+  return req.headers["x-session-id"] || "default";
+}
+
+// --------------------
+// Chat endpoint (TEXT + FILE + MEMORY)
 // --------------------
 app.post("/chat", upload.single("file"), async (req, res) => {
   try {
+    const sessionId = getSessionId(req);
     const message = req.body?.message || "";
     const file = req.file;
 
-    let extractedText = "";
+    // --------------------
+    // Init session if needed
+    // --------------------
+    if (!sessions.has(sessionId)) {
+      sessions.set(sessionId, {
+        messages: [],
+        document: ""
+      });
+    }
+
+    const session = sessions.get(sessionId);
 
     // --------------------
-    // DOCX extraction
+    // DOCX extraction (document memory)
     // --------------------
     if (
       file &&
@@ -67,26 +97,43 @@ app.post("/chat", upload.single("file"), async (req, res) => {
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     ) {
       const result = await mammoth.extractRawText({ path: file.path });
-      extractedText = result.value.trim();
+      session.document = result.value.trim();
     }
 
-    if (!message && !extractedText) {
+    if (!message && !session.document) {
       return res.json({ reply: "No input received" });
     }
+
+    // --------------------
+    // Save user message
+    // --------------------
+    if (message) {
+      session.messages.push({ role: "user", content: message });
+    }
+
+    // Limit memory (last 10 turns)
+    session.messages = session.messages.slice(-10);
+
+    // --------------------
+    // Build conversation history
+    // --------------------
+    const conversation = session.messages
+      .map(m => `${m.role.toUpperCase()}: ${m.content}`)
+      .join("\n");
 
     // --------------------
     // Build Gemini prompt
     // --------------------
     const prompt = `
-You are an AI assistant that can read uploaded documents.
+You are a helpful AI assistant with memory.
 
 DOCUMENT CONTENT:
-${extractedText || "(No document uploaded)"}
+${session.document || "(No document uploaded)"}
 
-USER MESSAGE:
-${message || "(No message provided)"}
+CONVERSATION HISTORY:
+${conversation}
 
-Answer clearly and accurately using the document if relevant.
+ASSISTANT:
 `;
 
     const result = await model.generateContent(prompt);
@@ -96,10 +143,15 @@ Answer clearly and accurately using the document if relevant.
       result.response?.text?.() ||
       "No response from model";
 
+    // --------------------
+    // Save assistant reply
+    // --------------------
+    session.messages.push({ role: "assistant", content: reply });
+
     res.json({ reply });
 
     // --------------------
-    // Cleanup temp file (Render-safe)
+    // Cleanup temp file
     // --------------------
     if (file) {
       fs.unlink(file.path, () => {});
