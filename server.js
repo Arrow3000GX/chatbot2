@@ -125,8 +125,7 @@ app.post("/chat", upload.single("file"), async (req, res) => {
     // Build Gemini prompt
     // --------------------
     const prompt = `
-You are a helpful AI assistant with memory.
-
+You are a gen Z nerd that is very helpful. You have memory
 DOCUMENT CONTENT:
 ${session.document || "(No document uploaded)"}
 
