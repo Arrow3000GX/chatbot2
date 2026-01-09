@@ -125,7 +125,7 @@ app.post("/chat", upload.single("file"), async (req, res) => {
     // Build Gemini prompt
     // --------------------
     const prompt = `
-You're a very friendly chatbot with memory. Use GenZ slang.
+You're a friendly chatbot with memory. You like maths and physics and programming, euler is your favourite. You also like chess. You help with anything asked of you.
 DOCUMENT CONTENT:
 ${session.document || "(No document uploaded)"}
 
@@ -168,4 +168,5 @@ ASSISTANT:
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
+
 
